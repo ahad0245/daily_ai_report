@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Daily AI Applicant Processing Report</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Zoho Recruit Reporting</p>
+          <h1>Daily AI Applicant Processing Report</h1>
+          <p class="hero-text">
+            Previous-day AI processed applications, grouped by job, with selection outcomes and export-ready totals.
+          </p>
+        </div>
+        <div class="hero-meta">
+          <span id="timezone-pill" class="timezone-pill">Timezone</span>
+          <span id="last-updated" class="last-updated">Last updated: -</span>
+        </div>
+      </header>
+
+      <section class="toolbar">
+        <label class="control">
+          <span>Report Date</span>
+          <input type="date" id="report-date" />
+        </label>
+        <label class="control control-search">
+          <span>Search Job Name</span>
+          <input type="search" id="job-search" placeholder="Search by job name" />
+        </label>
+        <div class="toolbar-actions">
+          <button id="refresh-button" class="button button-primary" type="button">Refresh</button>
+          <button id="export-button" class="button button-secondary" type="button">Export CSV</button>
+        </div>
+      </section>
+
+      <section id="summary-cards" class="summary-grid" aria-live="polite"></section>
+
+      <section class="breakdown-panel" id="status-breakdown-panel" hidden>
+        <div class="panel-header">
+          <h2>Other Status Breakdown</h2>
+          <p>Status values that are neither Selected by AI nor Rejected by AI.</p>
+        </div>
+        <div id="status-breakdown-list" class="status-breakdown-list"></div>
+      </section>
+
+      <section class="table-panel">
+        <div id="loading-state" class="state-card">
+          <div class="spinner"></div>
+          <p>Loading applicant report…</p>
+        </div>
+
+        <div id="error-state" class="state-card" hidden>
+          <h2>Unable to load the report</h2>
+          <p id="error-message">The report request failed.</p>
+          <button id="retry-button" class="button button-primary" type="button">Retry</button>
+        </div>
+
+        <div id="empty-state" class="state-card" hidden>
+          <h2>No applications found</h2>
+          <p>No AI processed applications matched the selected date.</p>
+        </div>
+
+        <div id="report-content" hidden>
+          <div class="table-meta">
+            <p id="table-caption">Job-wise applicant totals.</p>
+          </div>
+          <div class="table-wrap">
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th><button data-sort="jobName" type="button">Job Name</button></th>
+                  <th><button data-sort="jobPublicId" type="button">Job ID</button></th>
+                  <th><button data-sort="totalApplications" type="button">Total Applications</button></th>
+                  <th><button data-sort="selectedByAi" type="button">Selected by AI</button></th>
+                  <th><button data-sort="rejectedByAi" type="button">Rejected by AI</button></th>
+                  <th><button data-sort="otherStatuses" type="button">Other Statuses</button></th>
+                  <th><button data-sort="aiSelectionRate" type="button">AI Selection Rate</button></th>
+                </tr>
+              </thead>
+              <tbody id="report-table-body"></tbody>
+              <tfoot id="report-table-foot"></tfoot>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+  </html>
+
