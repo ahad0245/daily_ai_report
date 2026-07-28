@@ -109,7 +109,7 @@ function applyFiltersAndRender() {
   state.filteredJobs = filtered;
 
   const filteredGrandTotal = buildFilteredGrandTotal(filtered);
-  elements.tableCaption.textContent = `${filtered.length} job${filtered.length === 1 ? "" : "s"} shown for ${state.report.summary.reportDate}.`;
+  elements.tableCaption.textContent = `${filtered.length} job${filtered.length === 1 ? "" : "s"} shown for ${state.report.summary.reportDate}. Click job name to open detail page.`;
 
   if (!filtered.length && state.report.jobs.length) {
     showEmpty("No jobs matched the current search.");
@@ -122,6 +122,50 @@ function applyFiltersAndRender() {
 
   hideEmpty();
   renderTable(filtered, filteredGrandTotal);
+}
+
+function renderTable(rows, totals) {
+  const reportDate = state.report.summary.reportDate;
+  elements.tableBody.innerHTML = rows
+    .map((row) => {
+      const otherDetails = Object.entries(row.otherStatusBreakdown || {})
+        .map(([status, count]) => `${status}: ${count}`)
+        .join(" • ");
+      const detailUrl = `/job-detail-page?date=${encodeURIComponent(reportDate)}&jobKey=${encodeURIComponent(row.jobKey)}`;
+
+      return `
+        <tr class="job-row">
+          <td>
+            <a class="job-link" href="${detailUrl}">
+              <div class="job-title">${escapeHtml(row.jobName || "Unknown Job")}</div>
+              <div class="job-meta">${escapeHtml(row.jobId || "No numeric job ID")}</div>
+              ${otherDetails ? `<div class="row-note">${escapeHtml(otherDetails)}</div>` : ""}
+            </a>
+          </td>
+          <td>${escapeHtml(row.jobPublicId || row.jobId || "-")}</td>
+          <td><span class="metric">${escapeHtml(String(row.totalApplications))}</span></td>
+          <td><span class="metric metric-good">${escapeHtml(String(row.selectedByAi))}</span></td>
+          <td><span class="metric metric-bad">${escapeHtml(String(row.rejectedByAi))}</span></td>
+          <td><span class="metric metric-other">${escapeHtml(String(row.otherStatuses))}</span></td>
+          <td><span class="rate-pill">${escapeHtml(formatPercent(row.aiSelectionRate))}</span></td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  elements.tableFoot.innerHTML = `
+    <tr class="tfoot-row">
+      <td>Grand Total</td>
+      <td>-</td>
+      <td>${escapeHtml(String(totals.totalApplications))}</td>
+      <td>${escapeHtml(String(totals.selectedByAi))}</td>
+      <td>${escapeHtml(String(totals.rejectedByAi))}</td>
+      <td>${escapeHtml(String(totals.otherStatuses))}</td>
+      <td>${escapeHtml(formatPercent(totals.aiSelectionRate))}</td>
+    </tr>
+  `;
+
+  elements.reportContent.hidden = false;
 }
 
 function compareRows(left, right, sortKey, sortDirection) {
@@ -156,20 +200,18 @@ function buildFilteredGrandTotal(rows) {
       selectedByAi: 0,
       rejectedByAi: 0,
       otherStatuses: 0,
-    },
+    }
   );
 
   return {
     ...totals,
-    aiSelectionRate: totals.totalApplications
-      ? roundToTwo((totals.selectedByAi / totals.totalApplications) * 100)
-      : 0,
+    aiSelectionRate: totals.totalApplications ? roundToTwo((totals.selectedByAi / totals.totalApplications) * 100) : 0,
   };
 }
 
 function renderSummary(summary) {
   const cards = [
-    { title: "Report Date", value: summary.reportDate, note: "Default is yesterday." },
+    { title: "Report Date", value: summary.reportDate, note: "Default is previous day." },
     { title: "Total Jobs", value: summary.totalJobs, note: "Jobs that received AI processed applications." },
     { title: "Total Applications", value: summary.totalApplications, note: "Deduplicated by application ID." },
     { title: "Selected by AI", value: summary.selectedByAi, note: state.config.statusConfig.selectedByAi },
@@ -185,7 +227,7 @@ function renderSummary(summary) {
           <strong>${escapeHtml(String(card.value))}</strong>
           <p>${escapeHtml(card.note)}</p>
         </article>
-      `,
+      `
     )
     .join("");
 }
@@ -201,49 +243,9 @@ function renderOtherStatusBreakdown(breakdown) {
   elements.statusBreakdownPanel.hidden = false;
   elements.statusBreakdownList.innerHTML = entries
     .map(
-      ([status, count]) => `<span class="status-chip"><span>${escapeHtml(status)}</span><strong>${escapeHtml(String(count))}</strong></span>`,
+      ([status, count]) => `<span class="status-chip"><span>${escapeHtml(status)}</span><strong>${escapeHtml(String(count))}</strong></span>`
     )
     .join("");
-}
-
-function renderTable(rows, totals) {
-  elements.tableBody.innerHTML = rows
-    .map((row) => {
-      const otherDetails = Object.entries(row.otherStatusBreakdown || {})
-        .map(([status, count]) => `${status}: ${count}`)
-        .join(" • ");
-
-      return `
-        <tr>
-          <td>
-            <div class="job-title">${escapeHtml(row.jobName || "Unknown Job")}</div>
-            <div class="job-meta">${escapeHtml(row.jobId || "No numeric job ID")}</div>
-            ${otherDetails ? `<div class="row-note">${escapeHtml(otherDetails)}</div>` : ""}
-          </td>
-          <td>${escapeHtml(row.jobPublicId || row.jobId || "—")}</td>
-          <td><span class="metric">${escapeHtml(String(row.totalApplications))}</span></td>
-          <td><span class="metric metric-good">${escapeHtml(String(row.selectedByAi))}</span></td>
-          <td><span class="metric metric-bad">${escapeHtml(String(row.rejectedByAi))}</span></td>
-          <td><span class="metric metric-other">${escapeHtml(String(row.otherStatuses))}</span></td>
-          <td><span class="rate-pill">${escapeHtml(formatPercent(row.aiSelectionRate))}</span></td>
-        </tr>
-      `;
-    })
-    .join("");
-
-  elements.tableFoot.innerHTML = `
-    <tr class="tfoot-row">
-      <td>Grand Total</td>
-      <td>—</td>
-      <td>${escapeHtml(String(totals.totalApplications))}</td>
-      <td>${escapeHtml(String(totals.selectedByAi))}</td>
-      <td>${escapeHtml(String(totals.rejectedByAi))}</td>
-      <td>${escapeHtml(String(totals.otherStatuses))}</td>
-      <td>${escapeHtml(formatPercent(totals.aiSelectionRate))}</td>
-    </tr>
-  `;
-
-  elements.reportContent.hidden = false;
 }
 
 function exportCsv() {
@@ -367,4 +369,3 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
-

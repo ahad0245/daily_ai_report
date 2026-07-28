@@ -25,9 +25,18 @@ ZOHO_REQUEST_RETRY_DELAY_SECONDS = float(os.getenv("ZOHO_REQUEST_RETRY_DELAY_SEC
 @dataclass(frozen=True)
 class ApplicationRecord:
     application_id: str
+    application_name: str
     created_time: str
     ai_processed: bool
     application_status: str
+    ai_resume_score: float | None
+    ai_screening_status: str
+    ai_screening_reason: str
+    candidate_id: str
+    candidate_name: str
+    candidate_email: str
+    candidate_phone: str
+    candidate_skill_set: str
     job_key: str
     job_id: str
     job_public_id: str
@@ -143,6 +152,24 @@ class ZohoRecruitClient:
                 f"body={response.text[:500]!r}"
             ) from exc
 
+    def get_binary(
+        self,
+        path: str,
+        *,
+        retry_on_auth: bool = True,
+    ) -> requests.Response:
+        response = self._send_request_with_retries(
+            "GET",
+            f"{self.base_url}/recruit/v2/{path.lstrip('/')}",
+            headers={"Authorization": f"Zoho-oauthtoken {self.access_token}"},
+        )
+        if response.status_code == 401 and retry_on_auth:
+            self.refresh_access_token()
+            return self.get_binary(path, retry_on_auth=False)
+        if not response.ok:
+            raise RuntimeError(f"Zoho API error {response.status_code}: {response.text}")
+        return response
+
 
 class ApplicationsReportClient(ZohoRecruitClient):
     def fetch_ai_processed_applications_for_date(
@@ -186,28 +213,153 @@ class ApplicationsReportClient(ZohoRecruitClient):
 
         return records
 
+    def fetch_job_detail_for_date(
+        self,
+        *,
+        target_date: date,
+        config: ReportConfig,
+        job_key: str,
+    ) -> Dict[str, Any]:
+        applications = self.fetch_ai_processed_applications_for_date(target_date=target_date, config=config)
+        job_applications = [application for application in applications if application.job_key == job_key]
+        if not job_applications:
+            raise RuntimeError("No job details found for the selected date.")
+
+        primary = job_applications[0]
+        job_record = self.fetch_job_opening(primary.job_id) if primary.job_id else {}
+        candidates = [self.build_candidate_preview(application) for application in job_applications]
+        candidates.sort(
+            key=lambda item: (
+                -(item["aiResumeScore"] if isinstance(item["aiResumeScore"], (int, float)) else -1),
+                item["candidateName"].lower(),
+            )
+        )
+
+        summary = build_report_payload(
+            applications=job_applications,
+            target_date=target_date,
+            config=config,
+        )["summary"]
+
+        return {
+            "meta": {
+                "reportDate": target_date.isoformat(),
+                "generatedAt": datetime.now(config.timezone).isoformat(),
+                "timezone": config.timezone_name,
+            },
+            "job": {
+                "jobKey": primary.job_key,
+                "jobId": primary.job_id,
+                "jobPublicId": primary.job_public_id,
+                "jobName": primary.job_name,
+                "jobDescription": clean_html_text(job_record.get("Job_Description")),
+                "jobDescriptionHtml": job_record.get("Job_Description") or "",
+                "jobType": stringify(job_record.get("Job_Type")),
+                "workExperience": stringify(job_record.get("Work_Experience")),
+                "numberOfPositions": stringify(job_record.get("Number_of_Positions")),
+                "remoteJob": boolean_label(job_record.get("Remote_Job")),
+                "dateOpened": stringify(job_record.get("Date_Opened")),
+                "targetDate": stringify(job_record.get("Target_Date")),
+                "clientName": nested_name(job_record.get("Client_Name")),
+                "summary": {
+                    "totalApplications": summary["totalApplications"],
+                    "selectedByAi": summary["selectedByAi"],
+                    "rejectedByAi": summary["rejectedByAi"],
+                    "otherStatuses": summary["otherStatuses"],
+                },
+            },
+            "candidates": candidates,
+        }
+
+    def fetch_job_opening(self, job_id: str) -> Dict[str, Any]:
+        payload = self._request("GET", f"JobOpenings/{job_id}")
+        return payload.get("data", [{}])[0]
+
+    def fetch_candidate(self, candidate_id: str) -> Dict[str, Any]:
+        payload = self._request("GET", f"Candidates/{candidate_id}")
+        return payload.get("data", [{}])[0]
+
+    def fetch_candidate_attachments(self, candidate_id: str) -> List[Dict[str, Any]]:
+        payload = self._request("GET", f"Candidates/{candidate_id}/Attachments")
+        return payload.get("data", [])
+
+    def build_candidate_preview(self, application: ApplicationRecord) -> Dict[str, Any]:
+        return {
+            "applicationId": application.application_id,
+            "applicationName": application.application_name,
+            "applicationStatus": application.application_status,
+            "createdTime": application.created_time,
+            "candidateId": application.candidate_id,
+            "candidateName": application.candidate_name,
+            "candidateEmail": application.candidate_email,
+            "candidatePhone": application.candidate_phone,
+            "aiResumeScore": application.ai_resume_score,
+            "aiScreeningStatus": application.ai_screening_status,
+            "aiDescription": application.ai_screening_reason,
+            "candidateSkillSet": split_skill_set(application.candidate_skill_set),
+            "parsedResume": None,
+            "resume": {
+                "fileName": "",
+                "downloadUrl": (
+                    f"/api/report/candidates/{application.candidate_id}/resume"
+                    if application.candidate_id
+                    else ""
+                ),
+                "available": bool(application.candidate_id),
+            },
+        }
+
+    def fetch_candidate_profile(self, candidate_id: str) -> Dict[str, Any]:
+        candidate_record = self.fetch_candidate(candidate_id)
+        attachments = self.fetch_candidate_attachments(candidate_id)
+        resume_attachment = next(
+            (
+                attachment
+                for attachment in attachments
+                if "resume" in stringify((attachment.get("Category") or {}).get("name")).lower()
+                or "resume" in stringify(attachment.get("File_Name")).lower()
+            ),
+            attachments[0] if attachments else None,
+        )
+        return {
+            "candidateId": candidate_id,
+            "resume": {
+                "fileName": stringify(resume_attachment.get("File_Name")) if resume_attachment else "",
+                "downloadUrl": f"/api/report/candidates/{candidate_id}/resume" if resume_attachment else "",
+                "available": bool(resume_attachment),
+            },
+            "parsedResume": build_parsed_resume_sections(candidate_record),
+        }
+
 
 def normalize_application_record(item: Dict[str, Any]) -> ApplicationRecord:
-    application_id = str(item.get("id") or item.get("Application_ID") or "").strip()
-    created_time = str(item.get("Created_Time") or "").strip()
-    application_status = str(item.get("Application_Status") or "").strip()
-    job_numeric_id = str(item.get("$Job_Opening_Id") or "").strip()
-    job_public_id = str(item.get("Job_Opening_ID") or "").strip()
-    job_name = (
-        str(item.get("Potential_Name") or item.get("Posting_Title") or item.get("Application_Name__s") or "").strip()
-    )
+    application_id = stringify(item.get("id") or item.get("Application_ID"))
+    created_time = stringify(item.get("Created_Time"))
+    application_status = stringify(item.get("Application_Status"))
+    job_numeric_id = stringify(item.get("$Job_Opening_Id"))
+    job_public_id = stringify(item.get("Job_Opening_ID"))
+    job_name = stringify(item.get("Potential_Name") or item.get("Posting_Title") or item.get("Application_Name__s"))
     if not job_name and application_status:
         job_name = UNKNOWN_JOB_LABEL
 
     job_key = job_numeric_id or job_public_id or job_name or UNKNOWN_JOB_LABEL
     return ApplicationRecord(
         application_id=application_id,
+        application_name=stringify(item.get("Application_Name__s")),
         created_time=created_time,
         ai_processed=bool(item.get("AI_Processed")),
         application_status=application_status or "Unknown",
+        ai_resume_score=parse_float(item.get("AI_Resume_Score")),
+        ai_screening_status=stringify(item.get("AI_Screening_Status")),
+        ai_screening_reason=stringify(item.get("AI_Screening_Reason_2")),
+        candidate_id=stringify(item.get("$Candidate_Id")),
+        candidate_name=stringify(item.get("Full_Name") or build_full_name(item)),
+        candidate_email=stringify(item.get("Email")),
+        candidate_phone=stringify(item.get("Phone") or item.get("Mobile")),
+        candidate_skill_set=stringify(item.get("Skill_Set")),
         job_key=job_key,
-        job_id=job_numeric_id or "",
-        job_public_id=job_public_id or "",
+        job_id=job_numeric_id,
+        job_public_id=job_public_id,
         job_name=job_name or UNKNOWN_JOB_LABEL,
     )
 
@@ -302,4 +454,78 @@ def build_report_payload(
             "otherStatuses": total_other,
             "aiSelectionRate": round((total_selected / total_applications) * 100, 2) if total_applications else 0.0,
         },
+    }
+
+
+def build_full_name(item: Dict[str, Any]) -> str:
+    parts = [stringify(item.get("First_Name")), stringify(item.get("Last_Name"))]
+    return " ".join(part for part in parts if part).strip()
+
+
+def nested_name(value: Any) -> str:
+    if isinstance(value, dict):
+        return stringify(value.get("name"))
+    return stringify(value)
+
+
+def stringify(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def parse_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def boolean_label(value: Any) -> str:
+    if value is True:
+        return "Yes"
+    if value is False:
+        return "No"
+    return ""
+
+
+def split_skill_set(value: str) -> List[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def clean_html_text(value: str) -> str:
+    return stringify(value)
+
+
+def build_parsed_resume_sections(candidate_record: Dict[str, Any]) -> Dict[str, Any]:
+    experience = candidate_record.get("Experience_Details") or []
+    education = candidate_record.get("Educational_Details") or []
+    return {
+        "headline": stringify(candidate_record.get("Current_Job_Title")),
+        "currentEmployer": stringify(candidate_record.get("Current_Employer")),
+        "experienceInYears": stringify(candidate_record.get("Experience_in_Years")),
+        "highestQualification": stringify(candidate_record.get("Highest_Qualification_Held")),
+        "additionalInfo": stringify(candidate_record.get("Additional_Info")),
+        "experience": [
+            {
+                "company": stringify(item.get("Company")),
+                "title": stringify(item.get("Occupation")),
+                "from": stringify(item.get("From")),
+                "to": stringify(item.get("To")),
+                "summary": stringify(item.get("Description")),
+            }
+            for item in experience
+        ],
+        "education": [
+            {
+                "school": stringify(item.get("Institute_School")),
+                "degree": stringify(item.get("Degree")),
+                "specialization": stringify(item.get("Major")),
+                "from": stringify(item.get("From")),
+                "to": stringify(item.get("To")),
+            }
+            for item in education
+        ],
     }

@@ -44,7 +44,10 @@ body {
 .breakdown-panel,
 .table-panel,
 .summary-grid article,
-.state-card {
+.state-card,
+.detail-summary-grid article,
+.detail-copy-panel,
+.candidate-card {
   backdrop-filter: blur(16px);
   background: var(--panel);
   border: 1px solid var(--line);
@@ -157,6 +160,10 @@ body {
   font: inherit;
   font-weight: 700;
   transition: transform 140ms ease, opacity 140ms ease, background 140ms ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .button:hover {
@@ -180,26 +187,42 @@ body {
   border: 1px solid rgba(30, 36, 48, 0.1);
 }
 
-.summary-grid {
+.button-link {
+  width: fit-content;
+  margin-top: 10px;
+}
+
+.summary-grid,
+.detail-summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 16px;
   margin-top: 20px;
 }
 
-.summary-grid article {
+.summary-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.detail-summary-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.summary-grid article,
+.detail-summary-grid article {
   padding: 18px;
   border-radius: var(--radius-md);
   min-height: 124px;
 }
 
-.summary-grid h2 {
+.summary-grid h2,
+.detail-summary-grid h3 {
   margin: 0;
   color: var(--muted);
   font-size: 0.92rem;
 }
 
-.summary-grid strong {
+.summary-grid strong,
+.detail-summary-grid strong {
   display: block;
   margin-top: 14px;
   font-size: clamp(1.8rem, 2.4vw, 2.4rem);
@@ -226,7 +249,8 @@ body {
   align-items: baseline;
 }
 
-.panel-header h2 {
+.panel-header h2,
+.panel-header h3 {
   margin: 0;
   font-size: 1.15rem;
 }
@@ -340,12 +364,28 @@ body {
   background: rgba(13, 92, 99, 0.035);
 }
 
+.job-row {
+  cursor: pointer;
+}
+
+.job-link {
+  width: 100%;
+  display: block;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  text-decoration: none;
+}
+
 .job-title {
   font-weight: 800;
 }
 
 .job-meta,
-.row-note {
+.row-note,
+.detail-caption,
+.detail-job-meta,
+.candidate-meta {
   margin-top: 6px;
   color: var(--muted);
   font-size: 0.84rem;
@@ -385,7 +425,8 @@ body {
 }
 
 @media (max-width: 1080px) {
-  .summary-grid {
+  .summary-grid,
+  .detail-summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -396,7 +437,8 @@ body {
     margin-top: 12px;
   }
 
-  .hero {
+  .hero,
+  .candidate-card-top {
     flex-direction: column;
   }
 
@@ -417,7 +459,8 @@ body {
     flex: 1 1 180px;
   }
 
-  .summary-grid {
+  .summary-grid,
+  .detail-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -427,8 +470,8 @@ body {
 }
 
 @media (max-width: 540px) {
-  .summary-grid {
+  .summary-grid,
+  .detail-summary-grid {
     grid-template-columns: 1fr;
   }
 }
-
